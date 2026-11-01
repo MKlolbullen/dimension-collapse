@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Interactive web animation: building 0D→7D, then collapsing 7D back down to a single point."
+    />
+    <title>dimension-collapse</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%2335c2c9'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Dimension collapse animation"></canvas>
+
+    <div id="hud">
+      <header class="hud-top">
+        <div class="brand">DIMENSION COLLAPSE</div>
+        <h1 id="stage-title" class="stage-title">&nbsp;</h1>
+        <p id="stage-caption" class="stage-caption"></p>
+        <ol id="dim-pips" class="pips" aria-label="Current dimension"></ol>
+      </header>
+
+      <aside id="panel" class="panel">
+        <button
+          id="panel-toggle"
+          class="panel-toggle"
+          type="button"
+          aria-expanded="true"
+          title="Toggle panel"
+        >
+          ◂
+        </button>
+        <div class="panel-body">
+          <section>
+            <h2>Rotate through w</h2>
+            <p class="hint">Shift + drag the scene, or:</p>
+            <label class="slider"
+              ><span>xw</span
+              ><input id="rot-xw" type="range" min="-180" max="180" step="1" value="0" /><output
+                id="rot-xw-out"
+                >0°</output
+              ></label
+            >
+            <label class="slider"
+              ><span>yw</span
+              ><input id="rot-yw" type="range" min="-180" max="180" step="1" value="0" /><output
+                id="rot-yw-out"
+                >0°</output
+              ></label
+            >
+            <label class="slider"
+              ><span>zw</span
+              ><input id="rot-zw" type="range" min="-180" max="180" step="1" value="0" /><output
+                id="rot-zw-out"
+                >0°</output
+              ></label
+            >
+            <div class="row">
+              <button id="rot-reset" class="btn" type="button">Reset w-rotation</button>
+            </div>
+          </section>
+
+          <section>
+            <h2>View</h2>
+            <label class="check"
+              ><input id="opt-orbit" type="checkbox" checked /> Slow orbit (drag to look
+              around)</label
+            >
+            <label class="check"
+              ><input id="opt-projection" type="checkbox" checked /> Perspective n → 3 (uncheck for
+              orthographic)</label
+            >
+            <label class="check"
+              ><input id="opt-sound" type="checkbox" /> Sound
+              <span class="tag">experimental</span></label
+            >
+          </section>
+
+          <section>
+            <h2>Basis · <span id="matrix-dim">R⁰</span></h2>
+            <p class="hint" id="matrix-stats"></p>
+            <div id="matrix" class="matrix" aria-live="off"></div>
+            <p class="hint">
+              Rotation matrix acting on the live basis vectors. Below 4D with no w-rotation it is
+              the identity: the picture <em>is</em> the matrix.
+            </p>
+          </section>
+        </div>
+      </aside>
+
+      <footer class="transport">
+        <button
+          id="btn-play"
+          class="btn icon"
+          type="button"
+          aria-label="Play / pause"
+          title="Play / pause (space)"
+        >
+          ❚❚
+        </button>
+        <button
+          id="btn-prev"
+          class="btn icon"
+          type="button"
+          aria-label="Previous stage"
+          title="Previous stage (←)"
+        >
+          ⏮
+        </button>
+        <button
+          id="btn-next"
+          class="btn icon"
+          type="button"
+          aria-label="Next stage"
+          title="Next stage (→)"
+        >
+          ⏭
+        </button>
+        <input
+          id="scrub"
+          class="scrub"
+          type="range"
+          min="0"
+          max="1000"
+          step="1"
+          value="0"
+          aria-label="Timeline"
+        />
+        <output id="time" class="time">0:00</output>
+        <select id="speed" class="select" aria-label="Playback speed">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+        <label class="check small"><input id="opt-loop" type="checkbox" checked /> loop</label>
+        <button id="btn-help" class="btn icon" type="button" aria-label="Help" title="Controls (?)">
+          ?
+        </button>
+      </footer>
+    </div>
+
+    <dialog id="help" class="help">
+      <h2>Controls</h2>
+      <dl>
+        <dt>Drag</dt>
+        <dd>Orbit the 3D camera (scroll to zoom)</dd>
+        <dt>Shift + drag</dt>
+        <dd>Rotate the object through the fourth dimension (xw / yw planes)</dd>
+        <dt>Space</dt>
+        <dd>Play / pause</dd>
+        <dt>← / →</dt>
+        <dd>Previous / next stage</dd>
+        <dt>R</dt>
+        <dd>Reset w-rotation</dd>
+        <dt>P</dt>
+        <dd>Toggle the side panel</dd>
+        <dt>?</dt>
+        <dd>This help</dd>
+      </dl>
+      <p>
+        Colour is the <strong>w</strong> coordinate (teal = −1, amber = +1); below 4D it is the
+        coordinate being built or collapsed. Brightness is <strong>v</strong>. Everything beyond
+        that is perspective — one division per extra axis — and the matrix.
+      </p>
+      <form method="dialog"><button class="btn" type="submit">Close</button></form>
+    </dialog>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

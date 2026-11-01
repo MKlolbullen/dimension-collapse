@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dimension-collapse · single-file prototype</title>
+<!--
+  Single-file prototype of dimension-collapse. Open this file directly in a
+  browser (file:// works): Three.js and GSAP are loaded from a CDN via an
+  import map, everything else is inline. It is a condensed port of src/ —
+  same geometry, same stage structure, fewer frills (thin lines, no basis
+  matrix panel, no sound hook). The Vite app in the repo root is the real thing.
+-->
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#e6ecec;font:14px/1.5 system-ui,sans-serif;overflow:hidden}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #hud{position:fixed;left:28px;top:24px;max-width:520px;pointer-events:none}
+  .brand{font-size:11px;letter-spacing:.22em;font-weight:750;color:#35c2c9}
+  h1{margin:10px 0 6px;font-size:clamp(22px,3vw,32px);font-weight:560;letter-spacing:-.03em;min-height:1.1em}
+  p{margin:0;color:#8ea2a6;min-height:3em}
+  #panel{position:fixed;right:20px;top:20px;width:260px;padding:14px 16px;background:rgba(8,14,17,.78);border:1px solid rgba(142,162,166,.22);border-radius:10px;backdrop-filter:blur(10px)}
+  #panel h2{margin:0 0 6px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#35c2c9}
+  label{display:grid;grid-template-columns:24px 1fr 44px;gap:8px;align-items:center;font-family:ui-monospace,monospace;font-size:12px;margin:6px 0}
+  label output{text-align:right;color:#8ea2a6}
+  input[type=range]{accent-color:#35c2c9;width:100%}
+  .hint{font-size:12px;color:#8ea2a6;margin:0 0 8px;min-height:0}
+  #bar{position:fixed;left:20px;right:20px;bottom:18px;display:flex;gap:10px;align-items:center}
+  #scrub{flex:1;accent-color:#35c2c9}
+  button{font:inherit;font-size:12.5px;padding:6px 12px;border-radius:6px;border:1px solid rgba(142,162,166,.22);background:rgba(255,255,255,.04);color:#e6ecec;cursor:pointer}
+  #time{font-family:ui-monospace,monospace;font-size:12px;color:#8ea2a6;min-width:80px;text-align:center}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/",
+    "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.15.0/index.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="hud">
+  <div class="brand">DIMENSION COLLAPSE · PROTOTYPE</div>
+  <h1 id="title">&nbsp;</h1>
+  <p id="caption"></p>
+</div>
+<div id="panel">
+  <h2>Rotate through w</h2>
+  <p class="hint">Shift + drag the scene, or:</p>
+  <label><span>xw</span><input id="xw" type="range" min="-180" max="180" value="0"><output id="xw-o">0°</output></label>
+  <label><span>yw</span><input id="yw" type="range" min="-180" max="180" value="0"><output id="yw-o">0°</output></label>
+  <label><span>zw</span><input id="zw" type="range" min="-180" max="180" value="0"><output id="zw-o">0°</output></label>
+  <button id="reset">Reset</button>
+</div>
+<div id="bar">
+  <button id="play">❚❚</button>
+  <input id="scrub" type="range" min="0" max="1000" value="0">
+  <output id="time">0:00</output>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import gsap from 'gsap';
+
+// ============================================================ geometry core
+// n-cube [-1,1]^n: vertex i has coordinate k = +1 iff bit k of i is set.
+// Edges join indices that differ in exactly one bit (the bit = the edge's axis).
+const ncube = (n) => {
+  const vertices = [], edges = [], edgeAxis = [];
+  for (let i = 0; i < 2 ** n; i++) {
+    vertices.push(Array.from({ length: n }, (_, k) => ((i >> k) & 1 ? 1 : -1)));
+    for (let k = 0; k < n; k++) if (!((i >> k) & 1)) { edges.push([i, i | (1 << k)]); edgeAxis.push(k); }
+  }
+  return { n, vertices, edges, edgeAxis };
+};
+const CUBES = Array.from({ length: 8 }, (_, n) => ncube(n));
+
+// Givens rotation by theta in the (i, j) plane of R^n, as a 7×7 matrix.
+const identity = (n) => Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => +(r === c)));
+const givens = (n, i, j, t) => { const m = identity(n), c = Math.cos(t), s = Math.sin(t); m[i][i] = c; m[j][j] = c; m[i][j] = -s; m[j][i] = s; return m; };
+const mul = (a, b) => a.map((row) => b[0].map((_, c) => row.reduce((acc, v, k) => acc + v * b[k][c], 0)));
+const apply = (m, v) => m.map((row) => row.reduce((acc, x, c) => acc + x * (v[c] || 0), 0));
+
+// Perspective n→3: one factor d_k/(d_k - x_k) per dropped axis, from the original
+// coordinates, with its own eye distance per axis (d_k = d + 0.5(k-3)) so all 2^n
+// vertices stay distinct.
+const project = (v, d) => { let f = 1; for (let k = v.length - 1; k >= 3; k--) { const dk = d + 0.5 * (k - 3); f *= dk / (dk - v[k]); } return [v[0] * f, v[1] * f, v[2] * f]; };
+
+// Tesseract net: 8 cubes in the hyperplane w = -1, folded by rotating each cube
+// about its hinge face in the plane (outward direction, w).
+const AX = { x: 0, y: 1, z: 2, w: 3 };
+const unit4 = (a, s) => { const d = [0, 0, 0, 0]; d[a] = s; return d; };
+const CELLS = [{ center: [0, 0, 0], folds: [] }];
+for (const [a, s] of [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1], [2, -1]]) {
+  const center = [0, 0, 0]; center[a] = 2 * s;
+  const hinge = [0, 0, 0, -1]; hinge[a] = s;
+  CELLS.push({ center, folds: [{ hinge, dir: unit4(a, s) }] });
+}
+CELLS.push({ center: [0, -4, 0], folds: [{ hinge: [0, -3, 0, -1], dir: unit4(1, -1) }, { hinge: [0, -1, 0, -1], dir: unit4(1, -1) }] });
+const foldPoint = (p, hinge, dir, th) => {
+  const rel = p.map((x, k) => x - hinge[k]);
+  const a = rel.reduce((acc, x, k) => acc + x * dir[k], 0), b = rel[3];
+  const a2 = a * Math.cos(th) - b * Math.sin(th), b2 = a * Math.sin(th) + b * Math.cos(th);
+  const out = rel.map((x, k) => hinge[k] + x - a * dir[k] + a2 * dir[k]);
+  out[3] += b2 - b;
+  return out;
+};
+const netVertices = (fold) => {
+  const th = (fold * Math.PI) / 2, out = [], edges = [];
+  CELLS.forEach((cell) => {
+    const base = out.length;
+    for (const c of CUBES[3].vertices) {
+      let p = [cell.center[0] + c[0], cell.center[1] + c[1], cell.center[2] + c[2], -1];
+      for (const { hinge, dir } of cell.folds) p = foldPoint(p, hinge, dir, th);
+      out.push(p);
+    }
+    for (const [a, b] of CUBES[3].edges) edges.push([base + a, base + b]);
+  });
+  return { vertices: out, edges };
+};
+
+// ============================================================ state + timeline
+const state = { dim: 0, extent: 0, brightness: 0, user: { xw: 0, yw: 0, zw: 0 }, auto: { xw: 0, yv: 0, zu: 0, wt: 0, xv: 0 }, net: { mix: 0, fold: 1, scale: 1, lift: 0 } };
+const PLANES = { xw: [0, 3], yw: [1, 3], zw: [2, 3], yv: [1, 4], zu: [2, 5], wt: [3, 6], xv: [0, 4] };
+const AXES = ['x', 'y', 'z', 'w', 'v', 'u', 't'];
+const NAMES = ['a point', 'a segment', 'a square', 'a cube', 'a tesseract', 'a 5-cube', 'a 6-cube', 'a 7-cube'];
+const stages = [];
+const tl = gsap.timeline({ paused: true, repeat: -1, defaults: { ease: 'power2.inOut', immediateRender: false } });
+const mark = (title, caption) => stages.push({ time: tl.duration(), title, caption });
+const build = (k, dur = 2.6) => {
+  mark(`${k}D → ${k + 1}D`, `Copy ${NAMES[k]}, slide the copy along ${AXES[k]}, connect every corner to its twin. Same rule, new layer.`);
+  tl.set(state, { dim: k, extent: 0 }); tl.fromTo(state, { extent: 0 }, { extent: 1, duration: dur }); tl.set(state, { dim: k + 1, extent: 0 });
+};
+const collapse = (k) => {
+  mark(`${k + 1}D → ${k}D`, `Project away ${AXES[k]}: every pair of vertices that differed only in ${AXES[k]} merges.`);
+  tl.set(state, { dim: k, extent: 1 }); tl.fromTo(state, { extent: 1 }, { extent: 0, duration: 2.4 }); tl.set(state, { dim: k, extent: 0 });
+};
+const hold = (d, s, cap) => { mark(`${d}D — ${NAMES[d]}`, cap || `${2 ** d} vertices · ${d * 2 ** (d - 1)} edges`); const at = tl.duration(); tl.to({}, { duration: s }); return at; };
+const spin = (key, s, at, turns = 1) => { tl.fromTo(state.auto, { [key]: 0 }, { [key]: Math.PI * 2 * turns, duration: s, ease: 'power1.inOut' }, at); tl.set(state.auto, { [key]: 0 }, at + s); };
+
+mark('', 'Nothing yet. No directions to move in.');
+tl.set(state, { dim: 0, extent: 0, brightness: 0 }); tl.set(state.net, { mix: 0, fold: 1, scale: 1, lift: 0 }); tl.to({}, { duration: 1.6 });
+mark('0D — a point', 'Zero basis vectors. Nowhere to go — but something is there.');
+tl.fromTo(state, { brightness: 0 }, { brightness: 1, duration: 1.6, ease: 'power1.out' }); tl.to({}, { duration: 1 });
+build(0); hold(1, 1); build(1); hold(2, 1); build(2); hold(3, 1.8);
+build(3, 3.2);
+let at = hold(4, 6, '16 vertices · 32 edges · 8 cubic cells. Shift-drag or use the sliders to rotate through w. Colour is the w coordinate.'); spin('xw', 6, at);
+mark('4D — the tesseract net', 'Eight cubes unfold into ordinary 3D space like a paper template.');
+tl.fromTo(state.net, { mix: 0 }, { mix: 1, duration: 0.8 }); tl.fromTo(state.net, { fold: 1 }, { fold: 0, duration: 4.2 }); tl.fromTo(state.net, { scale: 1, lift: 0 }, { scale: 0.52, lift: 0.9, duration: 1.2, ease: 'power2.out' }, '<');
+mark('4D — the net, flat', 'All eight cubes share w = −1 (one colour). Fold them back up through w and they close into a tesseract.'); tl.to({}, { duration: 2.4 });
+mark('4D — folding back up', 'Each cube turns a quarter circle in a plane you cannot see: its outward direction rotates into w.');
+const foldStart = tl.duration(); tl.fromTo(state.net, { fold: 0 }, { fold: 1, duration: 4.2 }); tl.fromTo(state.net, { scale: 0.52, lift: 0.9 }, { scale: 1, lift: 0, duration: 1.2, ease: 'power2.in' }, foldStart + 3); tl.fromTo(state.net, { mix: 1 }, { mix: 0, duration: 0.8 });
+build(4); at = hold(5, 4.5, '32 vertices · 80 edges. Brightness is the fifth coordinate, v.'); spin('yv', 4.5, at);
+build(5); at = hold(6, 4.5); spin('zu', 4.5, at);
+build(6); at = hold(7, 6, '128 vertices · 448 edges. Every vertex is a 7-bit string of ±1. Trust the pattern.'); spin('wt', 6, at); spin('xv', 6, at, -1);
+for (let k = 6; k >= 0; k--) { if (k === 3) tl.to(state.user, { xw: 0, yw: 0, zw: 0, duration: 0.9 }); collapse(k); if (k > 0) hold(k, 0.7); }
+mark('0D — a point', 'The same point we started from. One rep done.'); tl.to({}, { duration: 6 });
+mark('', ''); tl.fromTo(state, { brightness: 1 }, { brightness: 0, duration: 2, ease: 'power1.in' }); tl.to({}, { duration: 1.5 });
+const duration = tl.duration();
+tl.render(0, true, true);
+
+// ============================================================ three.js view
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 100);
+camera.position.set(3.2, 2.4, 5.6);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.enablePan = false; controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
+
+const makeWire = (maxV, maxE) => {
+  const lp = new Float32Array(maxE * 6), lc = new Float32Array(maxE * 6), pp = new Float32Array(maxV * 3), pc = new Float32Array(maxV * 3);
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(lp, 3)); lg.setAttribute('color', new THREE.BufferAttribute(lc, 3));
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pp, 3)); pg.setAttribute('color', new THREE.BufferAttribute(pc, 3));
+  const lm = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const pm = new THREE.PointsMaterial({ vertexColors: true, size: 6, sizeAttenuation: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const lines = new THREE.LineSegments(lg, lm), points = new THREE.Points(pg, pm);
+  lines.frustumCulled = points.frustumCulled = false;
+  const group = new THREE.Group(); group.add(lines, points); scene.add(group);
+  return { group, lines, points, lp, lc, pp, pc, lm, pm };
+};
+const poly = makeWire(128, 448), net = makeWire(64, 96);
+const col = new THREE.Color();
+const hue = (t) => (0.5 + 0.29 * (Math.min(1, Math.max(-1, t)) + 1)) % 1;
+const upload = (w, positions, edges, colorAt, opacity, scale, lift = 0) => {
+  w.lm.opacity = w.pm.opacity = opacity; w.group.visible = opacity > 0.002; w.group.scale.setScalar(scale); w.group.position.y = lift * scale;
+  if (!w.group.visible) return;
+  positions.forEach((p, i) => { w.pp.set(p, i * 3); colorAt(i, -1).toArray(w.pc, i * 3); });
+  edges.forEach(([a, b], e) => { w.lp.set(positions[a], e * 6); w.lp.set(positions[b], e * 6 + 3); colorAt(a, e).toArray(w.lc, e * 6); colorAt(b, e).toArray(w.lc, e * 6 + 3); });
+  w.points.geometry.setDrawRange(0, positions.length); w.lines.geometry.setDrawRange(0, edges.length * 2);
+  for (const g of [w.points.geometry, w.lines.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
+};
+const SCALE = [1, 1, 1, 1, 0.74, 0.58, 0.47, 0.4];
+
+function render(dt) {
+  const m = Math.min(7, state.dim + (state.extent > 0 ? 1 : 0));
+  const eff = Math.min(7, state.dim + state.extent), i0 = Math.min(6, Math.floor(eff)), ft = eff - i0;
+  const scale = SCALE[i0] * (1 - ft) + SCALE[i0 + 1] * ft, d = 4;
+  let R = identity(7);
+  for (const src of [state.user, state.auto]) for (const key of Object.keys(PLANES)) if (src[key]) R = mul(givens(7, ...PLANES[key], src[key]), R);
+
+  const cube = CUBES[m], ext = Array.from({ length: 7 }, (_, k) => (k < state.dim ? 1 : k === state.dim ? state.extent : 0));
+  const hueAxis = Math.min(state.extent > 0 ? state.dim : state.dim - 1, 3);
+  const scaled = cube.vertices.map((v) => v.map((x, k) => x * ext[k]));
+  const pos = scaled.map((v) => project(apply(R, v), d));
+  const frontier = state.extent > 0 && state.extent < 1 ? state.dim : -1, hl = Math.sin(Math.PI * state.extent) * 0.85;
+  upload(poly, pos, cube.edges, (i, e) => {
+    const v = scaled[i];
+    col.setHSL(hue(hueAxis >= 0 && hueAxis < m ? v[hueAxis] : 0), 0.85, 0.58);
+    if (m > 4) col.multiplyScalar(1 - 0.35 * (ext[4] - v[4]));
+    if (e >= 0 && cube.edgeAxis[e] === frontier) col.lerp(new THREE.Color(1, 1, 1), hl);
+    return col;
+  }, state.brightness * (1 - state.net.mix), scale);
+  poly.pm.size = m === 0 ? 16 : 10 - 0.75 * m;
+
+  if (state.net.mix > 0.002) {
+    const nv = netVertices(state.net.fold);
+    const npos = nv.vertices.map((v) => project(apply(R, v), d));
+    upload(net, npos, nv.edges, (i) => col.setHSL(hue(nv.vertices[i][3]), 0.85, 0.58), state.brightness * state.net.mix, scale * state.net.scale, state.net.lift);
+  } else net.group.visible = false;
+
+  controls.update(dt);
+  renderer.render(scene, camera);
+}
+
+// ============================================================ ui
+const $ = (id) => document.getElementById(id);
+let lastStage = null;
+function hud() {
+  const t = tl.time();
+  let s = stages[0]; for (const x of stages) if (x.time <= t + 1e-6) s = x;
+  if (s !== lastStage) { $('title').innerHTML = s.title || '&nbsp;'; $('caption').textContent = s.caption; lastStage = s; }
+  for (const k of ['xw', 'yw', 'zw']) { const deg = Math.round(Math.atan2(Math.sin(state.user[k]), Math.cos(state.user[k])) * 180 / Math.PI); if (!dragging) $(k).value = deg; $(k + '-o').textContent = deg + '°'; }
+  if (!scrubbing) $('scrub').value = Math.round((t / duration) * 1000);
+  const f = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+  $('time').textContent = `${f(t)} / ${f(duration)}`;
+  $('play').textContent = tl.paused() ? '▶' : '❚❚';
+}
+let dragging = false, scrubbing = false;
+for (const k of ['xw', 'yw', 'zw']) { $(k).addEventListener('input', () => (state.user[k] = $(k).value * Math.PI / 180)); $(k).addEventListener('pointerdown', () => (dragging = true)); $(k).addEventListener('pointerup', () => (dragging = false)); }
+$('reset').onclick = () => (state.user.xw = state.user.yw = state.user.zw = 0);
+$('play').onclick = () => (tl.paused() ? tl.play() : tl.pause());
+$('scrub').addEventListener('pointerdown', () => (scrubbing = true));
+$('scrub').addEventListener('input', () => tl.time(($('scrub').value / 1000) * duration));
+$('scrub').addEventListener('change', () => (scrubbing = false));
+window.addEventListener('keydown', (e) => { if (e.key === ' ') { e.preventDefault(); $('play').onclick(); } if (e.key === 'r') $('reset').onclick(); });
+
+// Shift + drag rotates through w (intercepted before OrbitControls sees it).
+let wDrag = null;
+canvas.addEventListener('pointerdown', (e) => { if (!(e.shiftKey || e.button === 2)) return; e.stopImmediatePropagation(); wDrag = { x: e.clientX, y: e.clientY }; controls.enabled = false; canvas.setPointerCapture(e.pointerId); }, true);
+canvas.addEventListener('pointermove', (e) => { if (!wDrag) return; state.user.xw += (e.clientX - wDrag.x) * 0.008; state.user.yw -= (e.clientY - wDrag.y) * 0.008; wDrag = { x: e.clientX, y: e.clientY }; });
+for (const ev of ['pointerup', 'pointercancel']) canvas.addEventListener(ev, () => { wDrag = null; controls.enabled = true; });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+addEventListener('resize', resize); resize();
+
+tl.play();
+let last = performance.now();
+(function loop(now) { const dt = Math.min(0.1, (now - last) / 1000); last = now; render(dt); hud(); requestAnimationFrame(loop); })(last);
+</script>
+</body>
+</html>

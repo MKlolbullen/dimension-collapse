@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.vite/
+render/
+*.mp4
+*.log
+.DS_Store
+.env
+.env.*
