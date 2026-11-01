@@ -81,10 +81,12 @@ export function stats(n) {
  */
 export function createSequence(state, { loop = true } = {}) {
   const stages = [];
+  // immediateRender: false — a later fromTo must not leak its start value into
+  // the opening black frame; we force a render at t = 0 once the timeline is built.
   const tl = gsap.timeline({
     paused: true,
     repeat: loop ? -1 : 0,
-    defaults: { ease: 'power2.inOut' },
+    defaults: { ease: 'power2.inOut', immediateRender: false },
   });
 
   const mark = (id, dim, title, caption) => {
@@ -240,6 +242,7 @@ export function createSequence(state, { loop = true } = {}) {
   tl.to({}, { duration: TIMING.tailBlack });
 
   const duration = tl.duration();
+  tl.render(0, true, true);
 
   /** Stage whose start time is the latest one ≤ t. */
   const stageAt = (t) => {
