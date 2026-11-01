@@ -61,13 +61,15 @@ export function createState() {
     user: { xw: 0, yw: 0, zw: 0 },
     /**
      * Tesseract net: mix 0 = cube wireframe, 1 = net; fold 1 = folded
-     * tesseract, 0 = flat cross; scale shrinks the (much wider) flat net to fit.
+     * tesseract, 0 = flat cross; scale shrinks the (much wider) flat net to
+     * fit and lift re-centres it (its centroid sits at y = -0.5).
      */
-    net: { mix: 0, fold: 1, scale: 1 },
+    net: { mix: 0, fold: 1, scale: 1, lift: 0 },
     /** 'perspective' | 'orthographic' projection for the n→3 step. */
     projection: 'perspective',
-    /** Base distance of the n→3 projection "eye" along each dropped axis (grows with dimension). */
+    /** Eye distance of the n→3 projection for axis w; each further axis adds `spread`. */
     distance: 4,
+    spread: 0.5,
     /** Master timeline time in seconds (set every frame; used for deterministic effects). */
     time: 0,
     /** Optional caption override written by the timeline. */

@@ -29,12 +29,9 @@ export function effectiveDimension(state) {
   return Math.min(7, state.dim + state.extent);
 }
 
-/**
- * Eye distance for the n→3 perspective. Grows gently with dimension so the
- * compounded factors of a 7-cube do not explode.
- */
-export function projectionDistance(state) {
-  return state.distance + 0.5 * Math.max(0, effectiveDimension(state) - 4);
+/** Projection options for the n→3 step (per-axis eye distances, see projection.js). */
+export function projectionOptions(state) {
+  return { mode: state.projection, distance: state.distance, spread: state.spread };
 }
 
 /** Uniform scene scale per effective dimension, so higher cubes fit the frame. */
@@ -104,7 +101,7 @@ export function polytopeFrame(state, rotation = buildRotation(state)) {
   const hueT = new Array(cube.vertices.length);
   const bright = new Array(cube.vertices.length);
   const scaled = new Array(m);
-  const projection = { mode: state.projection, distance: projectionDistance(state) };
+  const projection = projectionOptions(state);
 
   for (let i = 0; i < cube.vertices.length; i++) {
     const v = cube.vertices[i];
@@ -144,7 +141,7 @@ export function netFrame(state, rotation = buildRotation(state)) {
   const net = tesseractNet(state.net.fold);
   const positions = new Array(net.vertices.length);
   const hueT = new Array(net.vertices.length);
-  const projection = { mode: state.projection, distance: projectionDistance(state) };
+  const projection = projectionOptions(state);
   for (let i = 0; i < net.vertices.length; i++) {
     const v = net.vertices[i];
     hueT[i] = v[W];

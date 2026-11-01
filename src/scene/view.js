@@ -23,7 +23,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { edgeCount, vertexCount, MAX_DIM } from '../geometry/ncube.js';
 import { NET_EDGE_COUNT, NET_VERTEX_COUNT } from '../geometry/net.js';
-import { polytopeFrame, netFrame, buildRotation, sceneScale } from './frame.js';
+import { polytopeFrame, netFrame, buildRotation, sceneScale, effectiveDimension } from './frame.js';
 import { writeColor } from './colors.js';
 
 const MAX_VERTICES = vertexCount(MAX_DIM);
@@ -212,13 +212,24 @@ export class SceneView {
     this.polytope.opacity = cubeOpacity;
     if (cubeOpacity > 0) {
       const { hueT, bright, edgeAxis, frontierAxis, highlight } = frame;
+      // Additive blending saturates to white where hundreds of edges overlap,
+      // so damp intensity and width as the dimension climbs.
+      const crowd = Math.max(0, effectiveDimension(state) - 4);
+      const intensity = 1 - 0.13 * crowd;
       this.polytope.upload(
         frame.positions,
         frame.edges,
-        (i, out, o) => writeColor(out, o, hueT[i], bright[i]),
+        (i, out, o) => writeColor(out, o, hueT[i], bright[i] * intensity),
         (e, i, out, o) =>
-          writeColor(out, o, hueT[i], bright[i], edgeAxis[e] === frontierAxis ? highlight : 0)
+          writeColor(
+            out,
+            o,
+            hueT[i],
+            bright[i] * intensity,
+            edgeAxis[e] === frontierAxis ? highlight : 0
+          )
       );
+      this.polytope.lineMaterial.linewidth = LINE_WIDTH_PX - 0.15 * crowd;
       // Bigger dots when there is little else to see (0D, 1D).
       this.polytope.pointMaterial.size = frame.m === 0 ? 16 : 10 - 0.75 * frame.m;
     }
@@ -236,7 +247,9 @@ export class SceneView {
         (e, i, out, o) => writeColor(out, o, nf.hueT[i], 1, 0)
       );
       this.net.pointMaterial.size = 6;
-      this.net.group.scale.setScalar(state.net.scale * scale);
+      const netScale = state.net.scale * scale;
+      this.net.group.scale.setScalar(netScale);
+      this.net.group.position.y = state.net.lift * netScale;
     }
 
     this.controls.update(dt);

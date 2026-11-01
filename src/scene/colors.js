@@ -4,7 +4,7 @@
  * teal (t = -1) → blue → violet (t = 0) → magenta → amber (t = +1).
  */
 
-import { Color } from 'three';
+import { Color, SRGBColorSpace } from 'three';
 
 export const HUE_START = 0.5; // teal
 export const HUE_END = 1.08; // amber (wraps past red)
@@ -24,7 +24,9 @@ export function hueForT(t) {
  * `highlight` pulls the colour towards white (used for the frontier edges).
  */
 export function writeColor(out, o, t, bright = 1, highlight = 0) {
-  scratch.setHSL(hueForT(t), SATURATION, LIGHTNESS);
+  // HSL is specified in sRGB (what the eye should see); Three converts it to
+  // its linear working space so the rendered colour matches the CSS swatches.
+  scratch.setHSL(hueForT(t), SATURATION, LIGHTNESS, SRGBColorSpace);
   if (highlight > 0) scratch.lerp(WHITE, highlight * 0.85);
   out[o] = scratch.r * bright;
   out[o + 1] = scratch.g * bright;

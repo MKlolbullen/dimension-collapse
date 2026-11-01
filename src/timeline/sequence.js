@@ -11,6 +11,10 @@ import { PHASE } from '../state.js';
 import { AXIS_NAMES, vertexCount, edgeCount } from '../geometry/ncube.js';
 
 const TAU = Math.PI * 2;
+/** Uniform shrink of the (much wider) net while it is unfolded. */
+const NET_SCALE = 0.52;
+/** Lift the net (its centroid sits at y = -0.5 because of the eighth cube). */
+const NET_LIFT = 0.9;
 
 export const TIMING = {
   blackHold: 1.6,
@@ -23,6 +27,7 @@ export const TIMING = {
   spin4D: 6.0,
   netMix: 0.8,
   netUnfold: 4.2,
+  netScale: 1.2,
   netFlatHold: 2.4,
   spinHigh: 4.5,
   spin7D: 6.0,
@@ -130,7 +135,7 @@ export function createSequence(state, { loop = true } = {}) {
   // ---------------------------------------------------------------- opening
   mark('black', 0, '', 'Nothing yet. No directions to move in.');
   tl.set(state, { dim: 0, extent: 0, phase: PHASE.hold, brightness: 0 });
-  tl.set(state.net, { mix: 0, fold: 1, scale: 1 });
+  tl.set(state.net, { mix: 0, fold: 1, scale: 1, lift: 0 });
   tl.to({}, { duration: TIMING.blackHold });
   mark('appear', 0, '0D — a point', HOLD_CAPTIONS[0]);
   tl.fromTo(
@@ -161,7 +166,15 @@ export function createSequence(state, { loop = true } = {}) {
     'Eight cubes unfold into ordinary 3D space, like a paper template of a box. Every cube is a cell of the tesseract.'
   );
   tl.fromTo(state.net, { mix: 0 }, { mix: 1, duration: TIMING.netMix, ease: 'power1.inOut' });
-  tl.fromTo(state.net, { fold: 1, scale: 1 }, { fold: 0, scale: 0.7, duration: TIMING.netUnfold });
+  // Shrink quickly at the start of the unfold (and grow back only at the very
+  // end of the re-fold): mid-fold the standing cubes swing out to ~5 units.
+  tl.fromTo(state.net, { fold: 1 }, { fold: 0, duration: TIMING.netUnfold });
+  tl.fromTo(
+    state.net,
+    { scale: 1, lift: 0 },
+    { scale: NET_SCALE, lift: NET_LIFT, duration: TIMING.netScale, ease: 'power2.out' },
+    '<'
+  );
   mark(
     'net-flat',
     4,
@@ -175,7 +188,14 @@ export function createSequence(state, { loop = true } = {}) {
     '4D — folding back up',
     'Each cube turns a quarter circle in a plane you cannot see — its outward direction rotates into w. Watch the colours separate.'
   );
-  tl.fromTo(state.net, { fold: 0, scale: 0.7 }, { fold: 1, scale: 1, duration: TIMING.netUnfold });
+  const foldStart = tl.duration();
+  tl.fromTo(state.net, { fold: 0 }, { fold: 1, duration: TIMING.netUnfold });
+  tl.fromTo(
+    state.net,
+    { scale: NET_SCALE, lift: NET_LIFT },
+    { scale: 1, lift: 0, duration: TIMING.netScale, ease: 'power2.in' },
+    foldStart + TIMING.netUnfold - TIMING.netScale
+  );
   tl.fromTo(state.net, { mix: 1 }, { mix: 0, duration: TIMING.netMix, ease: 'power1.inOut' });
 
   // ---------------------------------------------------------------- 4 → 7
@@ -188,7 +208,7 @@ export function createSequence(state, { loop = true } = {}) {
   build(6);
   at = hold(7, TIMING.spin7D);
   spin('wt', TIMING.spin7D, at);
-  spin('xv', TIMING.spin7D, at);
+  spin('xv', TIMING.spin7D, at, -1);
 
   // ---------------------------------------------------------------- 7 → 0
   // Return the user's w-rotation to the identity before w is removed, so the

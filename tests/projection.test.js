@@ -4,6 +4,7 @@ import {
   projectOrthographic,
   projectTo3,
   perspectiveFactor,
+  axisDistance,
 } from '../src/geometry/projection.js';
 import { ncube } from '../src/geometry/ncube.js';
 
@@ -25,6 +26,7 @@ describe('projection n → 3', () => {
     const d = 3;
     const near = projectPerspective([1, 1, 1, 1], { distance: d });
     const far = projectPerspective([1, 1, 1, -1], { distance: d });
+    // (a single extra axis uses exactly `distance`; spread only affects axes beyond w)
     expect(near.every((c) => close(c, perspectiveFactor(1, d)))).toBe(true);
     expect(far.every((c) => close(c, perspectiveFactor(-1, d)))).toBe(true);
     expect(near[0]).toBeGreaterThan(far[0]);
@@ -34,7 +36,7 @@ describe('projection n → 3', () => {
 
   it('perspective applies one factor per dropped dimension, from the original coordinates', () => {
     const d = 3;
-    const p = projectPerspective([1, 1, 1, 1, -1], { distance: d });
+    const p = projectPerspective([1, 1, 1, 1, -1], { distance: d, spread: 0 });
     const expected = perspectiveFactor(1, d) * perspectiveFactor(-1, d);
     expect(p.every((c) => close(c, expected))).toBe(true);
     // Equivalent to a chain of divisions whose eye distance is rescaled by the
@@ -42,6 +44,36 @@ describe('projection n → 3', () => {
     const f1 = perspectiveFactor(-1, d);
     const chained = f1 * ((d * f1) / (d * f1 - f1 * 1));
     expect(close(chained, expected)).toBe(true);
+  });
+
+  it('each extra axis has its own eye distance: d_k = d + spread·(k − 3)', () => {
+    expect(axisDistance(3, 4, 0.5)).toBe(4);
+    expect(axisDistance(6, 4, 0.5)).toBe(5.5);
+    const p = projectPerspective([1, 1, 1, 1, -1], { distance: 4, spread: 0.5 });
+    const expected = perspectiveFactor(1, 4) * perspectiveFactor(-1, 4.5);
+    expect(p.every((c) => close(c, expected))).toBe(true);
+  });
+
+  it('distinct per-axis distances keep all 2^n vertex projections distinct', () => {
+    for (let n = 4; n <= 7; n++) {
+      const keys = new Set(
+        ncube(n).vertices.map((v) =>
+          projectPerspective(v)
+            .map((c) => c.toFixed(6))
+            .join(',')
+        )
+      );
+      expect(keys.size, `n = ${n}`).toBe(2 ** n);
+    }
+    // …whereas a shared distance collapses them (the degeneracy the spread avoids).
+    const shared = new Set(
+      ncube(7).vertices.map((v) =>
+        projectPerspective(v, { spread: 0 })
+          .map((c) => c.toFixed(6))
+          .join(',')
+      )
+    );
+    expect(shared.size).toBe(40);
   });
 
   it('stays finite for every corner of a rotated 7-cube (|x_k| < d)', () => {

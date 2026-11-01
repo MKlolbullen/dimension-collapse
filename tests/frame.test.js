@@ -1,13 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createState, PHASE, visibleDimension, axisExtents } from '../src/state.js';
-import {
-  polytopeFrame,
-  netFrame,
-  hueAxis,
-  sceneScale,
-  projectionDistance,
-  buildRotation,
-} from '../src/scene/frame.js';
+import { polytopeFrame, netFrame, hueAxis, sceneScale, buildRotation } from '../src/scene/frame.js';
 import { isOrthonormal } from '../src/geometry/rotation.js';
 
 describe('state helpers', () => {
@@ -120,19 +113,27 @@ describe('polytope frame', () => {
     expect(isOrthonormal(buildRotation(s))).toBe(true);
   });
 
-  it('scene scale and projection distance are continuous in the effective dimension', () => {
+  it('scene scale is continuous in the effective dimension', () => {
     const s = createState();
     s.dim = 3;
     s.extent = 0.999999;
     const a = sceneScale(s);
-    const da = projectionDistance(s);
     s.dim = 4;
     s.extent = 0;
     expect(sceneScale(s)).toBeCloseTo(a, 4);
-    expect(projectionDistance(s)).toBeCloseTo(da, 4);
     s.dim = 7;
     expect(sceneScale(s)).toBeLessThan(0.5);
-    expect(projectionDistance(s)).toBeGreaterThan(5);
+  });
+
+  it('all 2^n vertices of a settled n-cube project to distinct points (no degeneracy)', () => {
+    const s = createState();
+    for (let n = 4; n <= 7; n++) {
+      s.dim = n;
+      s.extent = 0;
+      const f = polytopeFrame(s);
+      const keys = new Set(f.positions.map((p) => p.map((c) => c.toFixed(6)).join(',')));
+      expect(keys.size, `n = ${n}`).toBe(2 ** n);
+    }
   });
 });
 
