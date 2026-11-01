@@ -39,7 +39,9 @@ describe('tesseract net', () => {
     }
     // The cross shape: six cubes touch the core, the eighth hangs off -y.
     const core = centers[0];
-    const touching = centers.slice(1).filter((c) => Math.hypot(...c.map((x, k) => x - core[k])) === 2);
+    const touching = centers
+      .slice(1)
+      .filter((c) => Math.hypot(...c.map((x, k) => x - core[k])) === 2);
     expect(touching).toHaveLength(6);
   });
 

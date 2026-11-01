@@ -31,9 +31,7 @@ export function tesseractNetCells() {
     d[axis] = sign;
     return d;
   };
-  const cells = [
-    { id: 'core', label: 'w = −1', facet: [3, -1], center: [0, 0, 0], folds: [] },
-  ];
+  const cells = [{ id: 'core', label: 'w = −1', facet: [3, -1], center: [0, 0, 0], folds: [] }];
   const sideLabels = [
     ['x = +1', 0, 1],
     ['x = −1', 0, -1],

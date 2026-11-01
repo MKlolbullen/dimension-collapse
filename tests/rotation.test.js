@@ -37,11 +37,13 @@ describe('Givens rotations', () => {
     const b = givens(5, 1, 4, 0.9);
     const ab = multiply(a, b);
     const sum = givens(5, 1, 4, 1.2);
-    for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) expect(close(ab[r][c], sum[r][c])).toBe(true);
+    for (let r = 0; r < 5; r++)
+      for (let c = 0; c < 5; c++) expect(close(ab[r][c], sum[r][c])).toBe(true);
 
     const inv = multiply(transpose(a), a);
     const id = identity(5);
-    for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) expect(close(inv[r][c], id[r][c])).toBe(true);
+    for (let r = 0; r < 5; r++)
+      for (let c = 0; c < 5; c++) expect(close(inv[r][c], id[r][c])).toBe(true);
   });
 
   it('a composite of several plane rotations is still orthonormal (preserves lengths)', () => {

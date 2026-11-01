@@ -32,13 +32,23 @@ describe('projection n → 3', () => {
     expect(close(perspectiveFactor(-1, 3), 0.75)).toBe(true);
   });
 
-  it('perspective applies one division per dropped dimension', () => {
+  it('perspective applies one factor per dropped dimension, from the original coordinates', () => {
     const d = 3;
-    const p = projectPerspective([1, 1, 1, 1, 1], { distance: d });
-    const expected = perspectiveFactor(1, d) * perspectiveFactor(perspectiveFactor(1, d), d);
-    // After dropping v (axis 4), w (axis 3) has been scaled by f(1); the second
-    // division then uses the *scaled* w.
+    const p = projectPerspective([1, 1, 1, 1, -1], { distance: d });
+    const expected = perspectiveFactor(1, d) * perspectiveFactor(-1, d);
     expect(p.every((c) => close(c, expected))).toBe(true);
+    // Equivalent to a chain of divisions whose eye distance is rescaled by the
+    // accumulated factor: after dropping v the eye for w sits at d·f(-1).
+    const f1 = perspectiveFactor(-1, d);
+    const chained = f1 * ((d * f1) / (d * f1 - f1 * 1));
+    expect(close(chained, expected)).toBe(true);
+  });
+
+  it('stays finite for every corner of a rotated 7-cube (|x_k| < d)', () => {
+    // Worst case: a corner rotated so one coordinate carries the whole norm √7.
+    const v = [0, 0, 0, Math.sqrt(7), 0, 0, 0];
+    const p = projectPerspective(v, { distance: 4 });
+    for (const c of p) expect(Number.isFinite(c)).toBe(true);
   });
 
   it('a point on the w = 0 slice is unchanged by the 4 → 3 division', () => {

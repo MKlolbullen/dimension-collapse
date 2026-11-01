@@ -8,7 +8,9 @@
 
 /** n×n identity. */
 export function identity(n) {
-  return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => (r === c ? 1 : 0)));
+  return Array.from({ length: n }, (_, r) =>
+    Array.from({ length: n }, (_, c) => (r === c ? 1 : 0))
+  );
 }
 
 /**
